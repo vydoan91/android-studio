@@ -1,0 +1,274 @@
+package com.example.android.sunshineapp;
+
+import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Bundle;
+import android.support.v4.app.LoaderManager.LoaderCallbacks;
+import android.support.v4.content.AsyncTaskLoader;
+import android.support.v4.content.Loader;
+import android.support.v7.app.AppCompatActivity;
+import android.support.v7.widget.LinearLayoutManager;
+import android.support.v7.widget.RecyclerView;
+import android.util.Log;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
+import android.view.View;
+import android.widget.ProgressBar;
+import android.widget.TextView;
+
+import java.net.URL;
+
+public class ForecastActivity extends AppCompatActivity
+        implements ForecastAdapter.ForecastAdapterOnClickHandler, LoaderCallbacks<String[]> {
+
+    private static final String TAG = ForecastActivity.class.getSimpleName();
+    private static final int FORECAST_LOADER_ID = 0;
+    RecyclerView mRecyclerView;
+    ForecastAdapter mForecastAdapter;
+    TextView mErrorMessageDisplay;
+    ProgressBar mLoadingIndicator;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_forecast);
+
+        mRecyclerView = findViewById(R.id.recyclerview_forecast);
+
+        mErrorMessageDisplay = findViewById(R.id.tv_error_message_display);
+
+        mLoadingIndicator = findViewById(R.id.pb_loading_indicator);
+
+        LinearLayoutManager layoutManager
+                = new LinearLayoutManager(this, LinearLayoutManager.VERTICAL, false);
+
+        mRecyclerView.setLayoutManager(layoutManager);
+
+        mRecyclerView.setHasFixedSize(true);
+
+        mForecastAdapter = new ForecastAdapter(this);
+
+        mRecyclerView.setAdapter(mForecastAdapter);
+
+        mLoadingIndicator = findViewById(R.id.pb_loading_indicator);
+
+        int loaderId = FORECAST_LOADER_ID;
+
+        android.support.v4.app.LoaderManager.LoaderCallbacks<String[]> callback = ForecastActivity.this;
+
+        Bundle bundleForLoader = null;
+
+        getSupportLoaderManager().initLoader(loaderId, bundleForLoader, callback);
+    }
+
+    /**
+     * Instantiate and return a new Loader for the given ID.
+     *
+     * @param id The ID whose loader is to be created.
+     * @param loaderArgs Any arguments supplied by the caller.
+     *
+     * @return Return a new Loader instance that is ready to start loading.
+     */
+    @Override
+    public Loader<String[]> onCreateLoader(int id, final Bundle loaderArgs) {
+
+        return new AsyncTaskLoader<String[]>(this) {
+
+            /* This String array will hold and help cache our weather data */
+            String[] mWeatherData = null;
+
+            // COMPLETED (3) Cache the weather data in a member variable and deliver it in onStartLoading.
+            /**
+             * Subclasses of AsyncTaskLoader must implement this to take care of loading their data.
+             */
+            @Override
+            protected void onStartLoading() {
+                if (mWeatherData != null) {
+                    deliverResult(mWeatherData);
+                } else {
+                    mLoadingIndicator.setVisibility(View.VISIBLE);
+                    forceLoad();
+                }
+            }
+
+            /**
+             * This is the method of the AsyncTaskLoader that will load and parse the JSON data
+             * from OpenWeatherMap in the background.
+             *
+             * @return Weather data from OpenWeatherMap as an array of Strings.
+             *         null if an error occurs
+             */
+            @Override
+            public String[] loadInBackground() {
+
+                String locationQuery = SunshinePreferences
+                        .getPreferredWeatherLocation(ForecastActivity.this);
+
+                URL weatherRequestUrl = NetworkUtils.buildUrl(locationQuery);
+
+                try {
+                    String jsonWeatherResponse = NetworkUtils
+                            .getResponseFromHttpUrl(weatherRequestUrl);
+
+                    String[] simpleJsonWeatherData = OpenWeatherJsonUtils
+                            .getSimpleWeatherStringsFromJson(ForecastActivity.this, jsonWeatherResponse);
+
+                    return simpleJsonWeatherData;
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    return null;
+                }
+            }
+
+            /**
+             * Sends the result of the load to the registered listener.
+             *
+             * @param data The result of the load
+             */
+            public void deliverResult(String[] data) {
+                mWeatherData = data;
+                super.deliverResult(data);
+            }
+        };
+    }
+    /**
+     * Called when a previously created loader has finished its load.
+     *
+     * @param loader The Loader that has finished.
+     * @param data The data generated by the Loader.
+     */
+    @Override
+    public void onLoadFinished(Loader<String[]> loader, String[] data) {
+        mLoadingIndicator.setVisibility(View.INVISIBLE);
+        mForecastAdapter.setWeatherData(data);
+        if (null == data) {
+            showErrorMessage();
+        } else {
+            showWeatherDataView();
+        }
+    }
+
+    /**
+     * Called when a previously created loader is being reset, and thus
+     * making its data unavailable.  The application should at this point
+     * remove any references it has to the Loader's data.
+     *
+     * @param loader The Loader that is being reset.
+     */
+    @Override
+    public void onLoaderReset(Loader<String[]> loader) {
+        /*
+         * We aren't using this method in our example application, but we are required to Override
+         * it to implement the LoaderCallbacks<String> interface
+         */
+    }
+
+    /**
+     * This method is used when we are resetting data, so that at one point in time during a
+     * refresh of our data, you can see that there is no data showing.
+     */
+    private void invalidateData() {
+        mForecastAdapter.setWeatherData(null);
+    }
+
+    /**
+     * This method uses the URI scheme for showing a location found on a
+     * map. This super-handy intent is detailed in the "Common Intents"
+     * page of Android's developer site:
+     *
+     * @see <a"http://developer.android.com/guide/components/intents-common.html#Maps">
+     *
+     * Hint: Hold Command on Mac or Control on Windows and click that link
+     * to automagically open the Common Intents page
+     */
+    private void openLocationInMap() {
+        String addressString = "1600 Ampitheatre Parkway, CA";
+        Uri geoLocation = Uri.parse("geo:0,0?q=" + addressString);
+
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setData(geoLocation);
+
+        if (intent.resolveActivity(getPackageManager()) != null) {
+            startActivity(intent);
+        } else {
+            Log.d(TAG, "Couldn't call " + geoLocation.toString()
+                    + ", no receiving apps installed!");
+        }
+    }
+
+    /**
+     * This method is overridden by our MainActivity class in order to handle RecyclerView item
+     * clicks.
+     *
+     * @param weatherForDay The weather for the day that was clicked
+     */
+    @Override
+    public void onClick(String weatherForDay) {
+        Context context = this;
+        Class destinationClass = DetailActivity.class;
+        Intent intentToStartDetailActivity = new Intent(context, destinationClass);
+        intentToStartDetailActivity.putExtra(Intent.EXTRA_TEXT, weatherForDay);
+        startActivity(intentToStartDetailActivity);
+    }
+
+
+    /**
+     * This method will make the View for the weather data visible and
+     * hide the error message.
+     * <p>
+     * Since it is okay to redundantly set the visibility of a View, we don't
+     * need to check whether each view is currently visible or invisible.
+     */
+    private void showWeatherDataView() {
+        /* First, make sure the error is invisible */
+        mErrorMessageDisplay.setVisibility(View.INVISIBLE);
+        /* Then, make sure the weather data is visible */
+        mRecyclerView.setVisibility(View.VISIBLE);
+    }
+
+
+    /**
+     * This method will make the error message visible and hide the weather
+     * View.
+     * <p>
+     * Since it is okay to redundantly set the visibility of a View, we don't
+     * need to check whether each view is currently visible or invisible.
+     */
+    private void showErrorMessage() {
+        /* First, hide the currently visible data */
+        mRecyclerView.setVisibility(View.INVISIBLE);
+        /* Then, show the error */
+        mErrorMessageDisplay.setVisibility(View.VISIBLE);
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        /* Use AppCompatActivity's method getMenuInflater to get a handle on the menu inflater */
+        MenuInflater inflater = getMenuInflater();
+        /* Use the inflater's inflate method to inflate our menu layout to this menu */
+        inflater.inflate(R.menu.forecast, menu);
+        /* Return true so that the menu is displayed in the Toolbar */
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        int id = item.getItemId();
+
+        // COMPLETED (5) Refactor the refresh functionality to work with our AsyncTaskLoader
+        if (id == R.id.action_refresh) {
+            invalidateData();
+            getSupportLoaderManager().restartLoader(FORECAST_LOADER_ID, null, this);
+            return true;
+        }
+
+        if (id == R.id.action_map) {
+            openLocationInMap();
+            return true;
+        }
+
+        return super.onOptionsItemSelected(item);
+    }
+}
